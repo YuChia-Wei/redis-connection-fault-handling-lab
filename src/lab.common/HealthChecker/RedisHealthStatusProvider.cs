@@ -4,14 +4,15 @@ using HealthChecks.Redis;
 using Microsoft.Extensions.Diagnostics.HealthChecks;
 using Microsoft.Extensions.Logging;
 using Polly;
-using Polly.Registry;
+using Polly.CircuitBreaker;
+using Polly.Retry;
 
 namespace lab.common.HealthChecker;
 
 /// <summary>
 /// Redis Health Status
 /// </summary>
-public class RedisHealthStatusProvider : IRedisHealthStatusProvider
+public partial class RedisHealthStatusProvider : IRedisHealthStatusProvider
 {
     /// <summary>
     /// 熔斷時間 - 120 秒
@@ -22,15 +23,56 @@ public class RedisHealthStatusProvider : IRedisHealthStatusProvider
 
     private readonly RedisHealthCheck _healthCheckService;
     private readonly ILogger<RedisHealthStatusProvider> _logger;
-    private readonly ResiliencePipeline<HealthStatus> _pipeline;
+    private readonly ResiliencePipeline _pipeline;
 
-    public RedisHealthStatusProvider(ResiliencePipelineProvider<string> pipelineProvider,
-                                     RedisHealthCheck healthCheckService,
+    public RedisHealthStatusProvider(RedisHealthCheck healthCheckService,
                                      ILogger<RedisHealthStatusProvider> logger)
     {
         this._healthCheckService = healthCheckService;
         this._logger = logger;
-        this._pipeline = pipelineProvider.GetPipeline<HealthStatus>("redis-health-check-retry-pipeline");
+        this._pipeline = new ResiliencePipelineBuilder()
+                         .AddRetry(new RetryStrategyOptions
+                         {
+                             //最高重式次數
+                             MaxRetryAttempts = 2,
+                             //重試時的等待時間以等比級數增加
+                             BackoffType = DelayBackoffType.Exponential,
+                             UseJitter = false,
+                             //預設延遲 2 秒，配合 DelayBackoffType.Exponential + MaxRetryAttempts 設定，最高等待 8 秒
+                             Delay = TimeSpan.FromSeconds(2),
+                             ShouldHandle = arguments => arguments.Outcome switch
+                             {
+                                 { Exception: Exception } => PredicateResult.True(),
+                                 _ => PredicateResult.False()
+                             },
+                             OnRetry = arguments =>
+                             {
+                                 this._logger.LogInformation("{datetime} : retry!", DateTime.Now);
+                                 return ValueTask.CompletedTask;
+                             }
+                         })
+                         .AddCircuitBreaker(new CircuitBreakerStrategyOptions
+                         {
+                             ShouldHandle = arguments => arguments.Outcome switch
+                             {
+                                 { Exception: Exception } => PredicateResult.True(),
+                                 _ => PredicateResult.False()
+                             },
+                             //熔斷後停止多久，為了測試，使用 30 秒鐘
+                             BreakDuration = TimeSpan.FromSeconds(30),
+                             OnClosed = arguments =>
+                             {
+                                 this._logger.LogInformation("{datetime} : on close!", DateTime.Now);
+                                 _checkResult = HealthStatus.Unhealthy;
+                                 return ValueTask.CompletedTask;
+                             },
+                             OnOpened = arguments =>
+                             {
+                                 this._logger.LogInformation("{datetime} : on opened!", DateTime.Now);
+                                 _checkResult = HealthStatus.Healthy;
+                                 return ValueTask.CompletedTask;
+                             }
+                         }).Build();
     }
 
     /// <summary>
@@ -38,12 +80,12 @@ public class RedisHealthStatusProvider : IRedisHealthStatusProvider
     /// </summary>
     public async Task CheckHealthAsync()
     {
-        _checkResult = await this._pipeline.ExecuteAsync<HealthStatus>(async token =>
+        await this._pipeline.ExecuteAsync(async token =>
         {
-            this._logger.LogInformation("on CheckHealthAsync");
             var healthCheckResult = await this._healthCheckService.CheckHealthAsync(new HealthCheckContext(), token);
-            this._logger.LogInformation("redis is {healthCheckResult}", healthCheckResult);
-            return healthCheckResult.Status;
+            var healthStatus = healthCheckResult.Status;
+            LogRedisHealthStatus(this._logger, DateTime.Now, healthStatus);
+            _checkResult = healthStatus;
         }).ConfigureAwait(false);
     }
 
@@ -55,4 +97,16 @@ public class RedisHealthStatusProvider : IRedisHealthStatusProvider
         this._logger.LogInformation("get check result");
         return _checkResult;
     }
+
+    /// <summary>
+    /// set to unhealthy
+    /// </summary>
+    public void SetUnhealthy()
+    {
+        this._logger.LogInformation("{datetime} : set unhealthy", DateTime.Now);
+        _checkResult = HealthStatus.Unhealthy;
+    }
+
+    [LoggerMessage(LogLevel.Error, "{dateTime}: Redis Current Status is {healthStatus}")]
+    private static partial void LogRedisHealthStatus(ILogger<RedisHealthStatusProvider> logger, DateTime dateTime, HealthStatus healthStatus);
 }

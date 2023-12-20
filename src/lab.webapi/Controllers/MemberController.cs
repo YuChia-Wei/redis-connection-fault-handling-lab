@@ -56,9 +56,13 @@ public class MemberController : ControllerBase
     [Route("{id}")]
     [Produces("application/json")]
     [ProducesResponseType(typeof(MemberViewModel), 200)]
-    public async Task<MemberViewModel> GetAsync(string id)
+    public async Task<MemberViewModel?> GetAsync(string id)
     {
         var memberDto = await this._memberService.GetAsync(id);
+        if (memberDto == null)
+        {
+            return default;
+        }
 
         return new MemberViewModel
         {

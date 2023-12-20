@@ -1,5 +1,4 @@
 ﻿using lab.common.HealthChecker;
-using Microsoft.Extensions.Diagnostics.HealthChecks;
 
 namespace lab.webapi.Infrastructure.BackgroundServices;
 
@@ -60,15 +59,12 @@ public partial class RedisHealthCheckBackgroundService : BackgroundService
         {
             try
             {
+                this._logger.LogInformation($"{DateTime.Now:yyyy-MM-dd HH:mm:ss} [{machineName}] {this.GetType().Name} checking.");
                 await this._redisHealthStatusProvider.CheckHealthAsync();
             }
             catch (Exception e)
             {
-                var checkResult = this._redisHealthStatusProvider.CheckResult();
-                if (checkResult != HealthStatus.Healthy)
-                {
-                    LogRedisIsNotHealthy(this._logger, checkResult);
-                }
+                LogRedisIsNotHealthy(this._logger, DateTime.Now);
             }
 
             // 於指定的間隔時間 (IntervalTime) 後再啟動
@@ -76,6 +72,6 @@ public partial class RedisHealthCheckBackgroundService : BackgroundService
         }
     }
 
-    [LoggerMessage(LogLevel.Error, "Redis Checking - Still Break, Redis Connection Health Status: {checkResult}")]
-    private static partial void LogRedisIsNotHealthy(ILogger<RedisHealthCheckBackgroundService> logger, HealthStatus checkResult);
+    [LoggerMessage(LogLevel.Error, "{dateTime} Redis Checking - Still Break, Redis Connection Health Checking Error.")]
+    private static partial void LogRedisIsNotHealthy(ILogger<RedisHealthCheckBackgroundService> logger, DateTime dateTime);
 }

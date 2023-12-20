@@ -8,11 +8,9 @@ using lab.repository.Interfaces;
 using lab.service.Implements;
 using lab.service.Interfaces;
 using lab.webapi.Infrastructure.BackgroundServices;
-using Microsoft.Extensions.Diagnostics.HealthChecks;
 using Microsoft.OpenApi.Models;
 using Polly;
 using Polly.CircuitBreaker;
-using Polly.Fallback;
 using Polly.Retry;
 
 namespace lab.webapi;
@@ -151,23 +149,13 @@ public class Startup
         // 健康監控設定
         services.AddHealthChecks();
 
-        services.AddResiliencePipeline<string, HealthStatus>("redis-health-check-retry-pipeline", pipelineBuilder =>
+        services.AddResiliencePipeline("redis-health-check-retry-pipeline", pipelineBuilder =>
         {
-            pipelineBuilder.AddFallback(new FallbackStrategyOptions<HealthStatus>
-                           {
-                               ShouldHandle = arguments => arguments.Outcome switch
-                               {
-                                   { Exception: Exception } => PredicateResult.True(),
-                                   { Result: HealthStatus.Unhealthy } => PredicateResult.True(),
-                                   _ => PredicateResult.False()
-                               },
-                               FallbackAction = _ => Outcome.FromResultAsValueTask(HealthStatus.Unhealthy)
-                           })
-                           .AddRetry(new RetryStrategyOptions<HealthStatus>
+            pipelineBuilder.AddRetry(new RetryStrategyOptions
                            {
                                //最高重式次數
                                MaxRetryAttempts = 3,
-                               //重試時的等待時間
+                               //重試時的等待時間以等比級數增加
                                BackoffType = DelayBackoffType.Exponential,
                                UseJitter = false,
                                //預設延遲 2 秒，配合 DelayBackoffType.Exponential + MaxRetryAttempts 設定，最高等待 8 秒
@@ -178,7 +166,7 @@ public class Startup
                                    _ => PredicateResult.False()
                                }
                            })
-                           .AddCircuitBreaker(new CircuitBreakerStrategyOptions<HealthStatus>
+                           .AddCircuitBreaker(new CircuitBreakerStrategyOptions
                            {
                                ShouldHandle = arguments => arguments.Outcome switch
                                {

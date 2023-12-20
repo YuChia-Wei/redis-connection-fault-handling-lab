@@ -18,8 +18,7 @@ public class MemberService : IMemberService
     /// Initializes a new instance of the <see cref="MemberService" /> class.
     /// </summary>
     /// <param name="memberRepository"></param>
-    public MemberService(
-        IMemberRepository memberRepository)
+    public MemberService(IMemberRepository memberRepository)
     {
         this._memberRepository = memberRepository;
     }
@@ -28,11 +27,20 @@ public class MemberService : IMemberService
     /// 取得成員
     /// </summary>
     /// <returns></returns>
-    public async Task<MemberDto> GetAsync(string id)
+    public async Task<MemberDto?> GetAsync(string id)
     {
         var member = await this._memberRepository.GetAsync(id);
 
-        return new MemberDto {Id = member.Id, Name = member.Name};
+        if (member == null)
+        {
+            return default;
+        }
+
+        return new MemberDto
+        {
+            Id = member.Id,
+            Name = member.Name
+        };
     }
 
     /// <summary>
@@ -41,10 +49,18 @@ public class MemberService : IMemberService
     /// <returns></returns>
     public async Task<MemberDto> SetAsync(string id, string name)
     {
-        var member = new Member() {Id = id, Name = name};
+        var member = new Member
+        {
+            Id = id,
+            Name = name
+        };
 
         await this._memberRepository.SetAsync(member);
 
-        return new MemberDto {Id = member.Id, Name = member.Name};
+        return new MemberDto
+        {
+            Id = member.Id,
+            Name = member.Name
+        };
     }
 }

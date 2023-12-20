@@ -1,7 +1,6 @@
 ﻿using System;
 using System.IO;
 using System.IO.Compression;
-using System.Linq;
 using System.Threading.Tasks;
 using lab.common.HealthChecker;
 using lab.repository.Entities;
@@ -13,6 +12,7 @@ using Microsoft.Extensions.Logging;
 using Polly;
 using Polly.Fallback;
 using Polly.Retry;
+using StackExchange.Redis;
 
 namespace lab.repository.Implements;
 
@@ -44,8 +44,8 @@ public class MemberInRedisCache : ICache<Member>
     /// <param name="logger"></param>
     /// <param name="redisHealthStatusProvider"></param>
     public MemberInRedisCache(IDistributedCache cache,
-                                   ILogger<MemberInRedisCache> logger,
-                                   IRedisHealthStatusProvider redisHealthStatusProvider)
+                              ILogger<MemberInRedisCache> logger,
+                              IRedisHealthStatusProvider redisHealthStatusProvider)
     {
         this._cache = cache;
         this._redisHealthStatusProvider = redisHealthStatusProvider;
@@ -92,14 +92,9 @@ public class MemberInRedisCache : ICache<Member>
             // 序列化
             var bytes = MessagePackSerializer.Serialize(value);
 
-            var options = new DistributedCacheEntryOptions() { SlidingExpiration = TimeSpan.FromDays(3) };
+            var options = new DistributedCacheEntryOptions { SlidingExpiration = TimeSpan.FromDays(3) };
 
-            // 有壓縮版本
-            var array = (await ZipDataMemoryStreamAsync(key, bytes)).ToArray();
-            await this._cache.SetAsync(key, array, options);
-
-            // 沒壓縮版本
-            // await this._cache.SetAsync(key, bytes, options);
+            await this._cache.SetAsync(key, bytes, options);
         });
     }
 
@@ -114,19 +109,7 @@ public class MemberInRedisCache : ICache<Member>
         {
             if (await this._cache.GetAsync(key) is { } bytes)
             {
-                await using var msZip = new MemoryStream(bytes);
-                using var archive = new ZipArchive(msZip, ZipArchiveMode.Read);
-
-                //TODO: 這邊應該會有多個回傳資料，但只回傳第一個資料，需要再評估寫法
-                foreach (var entry in archive.Entries.ToList().Where(entry => !string.IsNullOrEmpty(entry.Name)))
-                {
-                    await using var entryStream = entry.Open();
-                    await using var msEntry = new MemoryStream();
-                    await entryStream.CopyToAsync(msEntry);
-
-                    //反序列化
-                    return MessagePackSerializer.Deserialize<Member>(msEntry.ToArray());
-                }
+                return MessagePackSerializer.Deserialize<Member>(bytes);
             }
 
             return default;
@@ -139,7 +122,7 @@ public class MemberInRedisCache : ICache<Member>
     /// <returns></returns>
     private AsyncFallbackPolicy GetFunctionFallbackPolicy()
     {
-        return Policy.Handle<Exception>()
+        return Policy.Handle<RedisTimeoutException>()
                      .FallbackAsync(onFallbackAsync: async exception =>
                                     {
                                         var message =
@@ -152,9 +135,9 @@ public class MemberInRedisCache : ICache<Member>
                                         try
                                         {
                                             //如果發生 Fallback 的話，就要主動去把 redis health checker 內的狀態更新，避免下次調用 API 又進入等待
-                                            await this._redisHealthStatusProvider.CheckHealthAsync();
+                                            this._redisHealthStatusProvider.SetUnhealthy();
                                         }
-                                        catch (Exception)
+                                        catch (RedisTimeoutException)
                                         {
                                             this._logger.LogError(exception, "Redis is unhealthy!");
                                         }

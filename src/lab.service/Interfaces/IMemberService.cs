@@ -8,7 +8,7 @@ namespace lab.service.Interfaces;
 /// </summary>
 public interface IMemberService
 {
-    Task<MemberDto> GetAsync(string id);
+    Task<MemberDto?> GetAsync(string id);
 
     /// <summary>
     /// 建立成員

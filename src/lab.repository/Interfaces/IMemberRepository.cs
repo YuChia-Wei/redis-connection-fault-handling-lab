@@ -10,11 +10,11 @@ public interface IMemberRepository
     /// </summary>
     /// <param name="id"></param>
     /// <returns></returns>
-    Task<Member> GetAsync(string id);
+    Task<Member?> GetAsync(string id);
 
     /// <summary>
     /// 設定成員資料
     /// </summary>
     /// <param name="member"></param>
-    Task SetAsync(Member member);
+    Task SetAsync(Member? member);
 }

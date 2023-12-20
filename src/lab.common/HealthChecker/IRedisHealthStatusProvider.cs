@@ -17,4 +17,10 @@ public interface IRedisHealthStatusProvider
     /// Health CheckResult
     /// </summary>
     public HealthStatus CheckResult();
+
+    /// <summary>
+    /// set to unhealthy
+    /// </summary>
+    /// <returns></returns>
+    public void SetUnhealthy();
 }
