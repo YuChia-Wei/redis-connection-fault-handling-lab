@@ -89,7 +89,7 @@ public class MemberInRedisCache : ICache<Member>
         var member = await this._redisRetryPipeline.ExecuteAsync<Member?>(async token =>
         {
             // 序列化
-            var bytes = MessagePackSerializer.Serialize(value);
+            var bytes = MessagePackSerializer.Serialize(value, cancellationToken: token);
 
             var options = new DistributedCacheEntryOptions { SlidingExpiration = TimeSpan.FromDays(3) };
 
