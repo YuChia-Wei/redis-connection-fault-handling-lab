@@ -5,6 +5,7 @@ namespace lab.webapi.Infrastructure.BackgroundServices;
 /// <summary>
 /// Redis 服務健康檢查背景服務
 /// </summary>
+/// <remarks>TODO: Use IHostService</remarks>
 public partial class RedisHealthCheckBackgroundService : BackgroundService
 {
     /// <summary>
