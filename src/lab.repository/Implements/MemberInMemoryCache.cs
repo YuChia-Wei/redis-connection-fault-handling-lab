@@ -36,7 +36,7 @@ public class MemberInMemoryCache : ICache<Member>
     /// </summary>
     /// <param name="stateKey">狀態 Key</param>
     /// <returns></returns>
-    public async Task<Member> GetAsync(string stateKey)
+    public async Task<Member?> GetAsync(string stateKey)
     {
         var memberState = await this._cache.GetAsync(stateKey);
 
@@ -67,11 +67,13 @@ public class MemberInMemoryCache : ICache<Member>
     /// </summary>
     /// <param name="stateKey"></param>
     /// <param name="state"></param>
-    public async Task SetAsync(string stateKey, Member state)
+    public async Task<Member?> SetAsync(string stateKey, Member state)
     {
         await this._cache.SetAsync(stateKey, state);
 
         // 寫入記憶體備份
         this._memoryCache.Set(stateKey, state);
+
+        return state;
     }
 }

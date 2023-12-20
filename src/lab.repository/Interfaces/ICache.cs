@@ -22,5 +22,5 @@ public interface ICache<T>
     /// <param name="key">快取 Key</param>
     /// <param name="value">快取值</param>
     /// <returns></returns>
-    Task SetAsync(string key, T value);
+    Task<Member?> SetAsync(string key, T value);
 }

@@ -1,6 +1,7 @@
 using Asp.Versioning;
 using Asp.Versioning.Conventions;
 using HealthChecks.Redis;
+using lab.common;
 using lab.common.HealthChecker;
 using lab.repository.Entities;
 using lab.repository.Implements;
@@ -10,8 +11,9 @@ using lab.service.Interfaces;
 using lab.webapi.Infrastructure.BackgroundServices;
 using Microsoft.OpenApi.Models;
 using Polly;
-using Polly.CircuitBreaker;
+using Polly.Fallback;
 using Polly.Retry;
+using StackExchange.Redis;
 
 namespace lab.webapi;
 
@@ -149,33 +151,32 @@ public class Startup
         // 健康監控設定
         services.AddHealthChecks();
 
-        services.AddResiliencePipeline("redis-health-check-retry-pipeline", pipelineBuilder =>
+        services.AddResiliencePipeline<string, Member?>(PollyKeys.RedisRetryPipeline, pipelineBuilder =>
         {
-            pipelineBuilder.AddRetry(new RetryStrategyOptions
-                           {
-                               //最高重式次數
-                               MaxRetryAttempts = 3,
-                               //重試時的等待時間以等比級數增加
-                               BackoffType = DelayBackoffType.Exponential,
-                               UseJitter = false,
-                               //預設延遲 2 秒，配合 DelayBackoffType.Exponential + MaxRetryAttempts 設定，最高等待 8 秒
-                               Delay = TimeSpan.FromSeconds(2),
-                               ShouldHandle = arguments => arguments.Outcome switch
-                               {
-                                   { Exception: Exception } => PredicateResult.True(),
-                                   _ => PredicateResult.False()
-                               }
-                           })
-                           .AddCircuitBreaker(new CircuitBreakerStrategyOptions
-                           {
-                               ShouldHandle = arguments => arguments.Outcome switch
-                               {
-                                   { Exception: Exception } => PredicateResult.True(),
-                                   _ => PredicateResult.False()
-                               },
-                               //熔斷後停止多久
-                               BreakDuration = TimeSpan.FromSeconds(10)
-                           });
+            pipelineBuilder.AddRetry(new RetryStrategyOptions<Member?>
+            {
+                //最高重試次數
+                MaxRetryAttempts = 3,
+                //重試時的等待時間以等比級數增加
+                BackoffType = DelayBackoffType.Constant,
+                UseJitter = false,
+                //預設重試間隔 2 秒
+                Delay = TimeSpan.FromSeconds(2),
+                ShouldHandle = arguments => arguments.Outcome switch
+                {
+                    { Exception: RedisConnectionException } => PredicateResult.True(),
+                    _ => PredicateResult.False()
+                }
+            }).AddFallback(new FallbackStrategyOptions<Member?>
+            {
+                ShouldHandle = arguments => arguments.Outcome switch
+                {
+                    { Exception: RedisConnectionException } => PredicateResult.True(),
+                    { Result: null } => PredicateResult.False(),
+                    _ => PredicateResult.False()
+                },
+                FallbackAction = _ => Outcome.FromResultAsValueTask(default(Member?))
+            });
         });
 
         // Redis Health Check Hosting Service
